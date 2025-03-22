@@ -1,5 +1,46 @@
-<form (ngSubmit)="onLogin()">
-  <input [(ngModel)]="email" name="email" type="email" placeholder="Email" required />
-  <input [(ngModel)]="password" name="password" type="password" placeholder="Password" required />
-  <button type="submit">Login</button>
-</form>
+<div class="login-container">
+  <mat-card class="login-card">
+    <mat-card-header>
+      <mat-card-title>Login</mat-card-title>
+      <mat-card-subtitle>Please enter your credentials</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <form [formGroup]="authForm" (ngSubmit)="onSubmit()">
+        <div class="form-field">
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Email</mat-label>
+            <input matInput type="email" formControlName="email" placeholder="email@example.com" />
+            <mat-icon matPrefix>email</mat-icon>
+            <mat-error *ngIf="authForm.get('email')?.invalid">{{ getEmailErrorMessage() }}</mat-error>
+          </mat-form-field>
+        </div>
+
+        <div class="form-field">
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Password</mat-label>
+            <input matInput [type]="hidePassword ? 'password' : 'text'" formControlName="password" />
+            <mat-icon matPrefix>lock</mat-icon>
+            <button mat-icon-button matSuffix (click)="hidePassword = !hidePassword" type="button">
+              <mat-icon>{{ hidePassword ? 'visibility_off' : 'visibility' }}</mat-icon>
+            </button>
+            <mat-error *ngIf="authForm.get('password')?.invalid">{{ getPasswordErrorMessage() }}</mat-error>
+          </mat-form-field>
+        </div>
+
+        <div class="forgot-password">
+          <a mat-button color="primary" routerLink="/forgot-password">Forgot Password?</a>
+        </div>
+
+        <div class="actions">
+          <button mat-raised-button color="primary" type="submit" class="full-width">Login</button>
+        </div>
+
+        <div class="register">
+          <span>Don't have an account?</span>
+          <a mat-button color="accent" routerLink="/register">Register</a>
+        </div>
+      </form>
+    </mat-card-content>
+  </mat-card>
+</div>
