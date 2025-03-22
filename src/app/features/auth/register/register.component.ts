@@ -17,6 +17,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatIconModule } from '@angular/material/icon';
+import { finalize } from 'rxjs';
+import { AuthService, RegisterRequest } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-register',
@@ -37,17 +39,37 @@ export class RegisterComponent {
   registerForm: FormGroup;
   hidePassword = true;
   hideConfirmPassword = true;
+  isLoading = false;
+  serverErrors: string[] = [];
 
-  constructor(private fb: FormBuilder, private snackBar: MatSnackBar, private router: Router) {
+  constructor(
+    private fb: FormBuilder,
+    private snackBar: MatSnackBar,
+    private router: Router,
+    private authService: AuthService,
+  ) {
     this.registerForm = this.fb.group(
       {
         fullName: ['', [Validators.required]],
         email: ['', [Validators.required, Validators.email]],
-        password: ['', [Validators.required, Validators.minLength(6)]],
+        password: [
+          '',
+          [
+            Validators.required,
+            Validators.minLength(6),
+            Validators.pattern(
+              /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}$/,
+            ),
+          ],
+        ],
         confirmPassword: ['', [Validators.required]],
       },
       { validators: this.passwordMatchValidator },
     );
+  }
+
+  ngOnInit(): void {
+    // Component initialization logic
   }
 
   passwordMatchValidator(control: AbstractControl): ValidationErrors | null {
@@ -63,16 +85,43 @@ export class RegisterComponent {
   }
 
   onSubmit() {
-    if (this.registerForm.valid) {
-      // TODO: Implement your registration logic here
-      this.snackBar.open('Registration successful!', 'Close', {
-        duration: 3000,
-      });
+    this.serverErrors = [];
 
-      // Navigate to login page after successful registration
-      setTimeout(() => {
-        this.router.navigate(['/login']);
-      }, 3000);
+    if (this.registerForm.valid) {
+      this.isLoading = true;
+
+      const registerData: RegisterRequest = {
+        email: this.registerForm.value.email,
+        password: this.registerForm.value.password,
+        confirmPassword: this.registerForm.value.confirmPassword,
+        fullName: this.registerForm.value.fullName,
+      };
+
+      this.authService
+        .register(registerData)
+        .pipe(finalize(() => (this.isLoading = false)))
+        .subscribe({
+          next: (response) => {
+            this.snackBar.open('Registration successful! You can now log in.', 'Close', {
+              duration: 5000,
+              panelClass: ['success-snackbar'],
+            });
+            this.router.navigate(['/login']);
+          },
+          error: (error) => {
+            if (error.message) {
+              this.serverErrors = Array.isArray(error.message) ? error.message : [error.message];
+              this.snackBar.open(
+                'Registration failed. Please check the form and try again.',
+                'Close',
+                {
+                  duration: 5000,
+                  panelClass: ['error-snackbar'],
+                },
+              );
+            }
+          },
+        });
     } else {
       this.registerForm.markAllAsTouched();
     }
@@ -99,7 +148,13 @@ export class RegisterComponent {
     if (password?.hasError('required')) {
       return 'Password is required';
     }
-    return password?.hasError('minlength') ? 'Password must be at least 6 characters' : '';
+    if (password?.hasError('minlength')) {
+      return 'Password must be at least 6 characters';
+    }
+    if (password?.hasError('pattern')) {
+      return 'Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number and 1 special character';
+    }
+    return '';
   }
 
   getConfirmPasswordErrorMessage() {
