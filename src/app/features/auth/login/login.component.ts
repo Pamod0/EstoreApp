@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 import {
   FormBuilder,
   FormGroup,
@@ -10,6 +10,7 @@ import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 
 import { AuthService } from '../../../core/services/auth.service';
+import { AuthErrorResponse } from '../../../core/models/auth.model';
 
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -18,6 +19,19 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatIconModule } from '@angular/material/icon';
 import { catchError, finalize, of, Subscription, tap } from 'rxjs';
+
+const VALIDATION = {
+  PASSWORD_MIN_LENGTH: 6,
+  SNACKBAR_DURATION: 3000,
+  MESSAGES: {
+    LOGIN_SUCCESS: 'Login successful!',
+    LOGIN_FAILED: 'Login failed. Please try again.',
+    EMAIL_REQUIRED: 'Email is required',
+    EMAIL_INVALID: 'Not a valid email',
+    PASSWORD_REQUIRED: 'Password is required',
+    PASSWORD_TOO_SHORT: 'Password must be at least 6 characters',
+  },
+};
 
 @Component({
   selector: 'app-login',
@@ -35,7 +49,7 @@ import { catchError, finalize, of, Subscription, tap } from 'rxjs';
   templateUrl: './login.component.html',
   styleUrl: './login.component.scss',
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit, OnDestroy {
   private subscriptions = new Subscription();
   authForm!: FormGroup;
   isLogin: boolean = true;
@@ -54,12 +68,15 @@ export class LoginComponent {
   createForm() {
     this.authForm = this.fb.group({
       email: ['', [Validators.required, Validators.email]],
-      password: ['', [Validators.required, Validators.minLength(6)]],
+      password: ['', [Validators.required, Validators.minLength(VALIDATION.PASSWORD_MIN_LENGTH)]],
     });
   }
 
   onSubmit() {
-    if (this.authForm.invalid) return;
+    if (this.authForm.invalid) {
+      this.authForm.markAllAsTouched(); // Mark all fields as touched to trigger validations
+      return;
+    }
 
     this.isLoading = true;
 
@@ -69,12 +86,17 @@ export class LoginComponent {
       .login(email, password)
       .pipe(
         tap((response) => {
-          this.snackBar.open('Login successful!', 'Close', { duration: 3000 });
+          this.snackBar.open(VALIDATION.MESSAGES.LOGIN_SUCCESS, 'Close', {
+            duration: VALIDATION.SNACKBAR_DURATION,
+          });
+          this.resetForm();
           this.router.navigate(['/admin']);
         }),
-        catchError((error) => {
-          const errorMessage = error?.error?.message || 'Login failed. Please try again.';
-          this.snackBar.open(errorMessage, 'Close', { duration: 3000 });
+        catchError((error: AuthErrorResponse) => {
+          const errorMessage = error?.error?.message || VALIDATION.MESSAGES.LOGIN_FAILED;
+          this.snackBar.open(errorMessage, 'Close', {
+            duration: VALIDATION.SNACKBAR_DURATION,
+          });
           return of(null);
         }),
         finalize(() => {
@@ -86,20 +108,28 @@ export class LoginComponent {
     this.subscriptions.add(loginSubscription);
   }
 
+  resetForm() {
+    this.authForm.reset();
+    // Avoid validation errors showing up immediately after reset
+    Object.keys(this.authForm.controls).forEach((key) => {
+      this.authForm.get(key)?.setErrors(null);
+    });
+  }
+
   getEmailErrorMessage() {
     const email = this.authForm.get('email');
     if (email?.hasError('required')) {
-      return 'Email is required';
+      return VALIDATION.MESSAGES.EMAIL_REQUIRED;
     }
-    return email?.hasError('email') ? 'Not a valid email' : '';
+    return email?.hasError('email') ? VALIDATION.MESSAGES.EMAIL_INVALID : '';
   }
 
   getPasswordErrorMessage() {
     const password = this.authForm.get('password');
     if (password?.hasError('required')) {
-      return 'Password is required';
+      return VALIDATION.MESSAGES.PASSWORD_REQUIRED;
     }
-    return password?.hasError('minlength') ? 'Password must be at least 6 characters' : '';
+    return password?.hasError('minlength') ? VALIDATION.MESSAGES.PASSWORD_TOO_SHORT : '';
   }
 
   ngOnDestroy(): void {
