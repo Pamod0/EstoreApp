@@ -7,7 +7,7 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 
 import { AuthService } from '../../../core/services/auth.service';
 
@@ -17,6 +17,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatIconModule } from '@angular/material/icon';
+import { catchError, finalize, of, Subscription, tap } from 'rxjs';
 
 @Component({
   selector: 'app-login',
@@ -35,11 +36,14 @@ import { MatIconModule } from '@angular/material/icon';
   styleUrl: './login.component.scss',
 })
 export class LoginComponent {
+  private subscriptions = new Subscription();
   authForm!: FormGroup;
-  isLogin = true;
-  hidePassword = true;
+  isLogin: boolean = true;
+  isLoading: boolean = false;
+  hidePassword: boolean = true;
 
   private fb = inject(FormBuilder);
+  private router = inject(Router);
   private authService = inject(AuthService);
   private snackBar = inject(MatSnackBar);
 
@@ -57,12 +61,29 @@ export class LoginComponent {
   onSubmit() {
     if (this.authForm.invalid) return;
 
+    this.isLoading = true;
+
     const { email, password } = this.authForm.value;
 
-    this.authService.login(email, password).subscribe(
-      (response) => this.snackBar.open('Login successful!', 'Close', { duration: 3000 }),
-      (error) => this.snackBar.open('Login failed. Please try again.', 'Close', { duration: 3000 }),
-    );
+    const loginSubscription = this.authService
+      .login(email, password)
+      .pipe(
+        tap((response) => {
+          this.snackBar.open('Login successful!', 'Close', { duration: 3000 });
+          this.router.navigate(['/admin']);
+        }),
+        catchError((error) => {
+          const errorMessage = error?.error?.message || 'Login failed. Please try again.';
+          this.snackBar.open(errorMessage, 'Close', { duration: 3000 });
+          return of(null);
+        }),
+        finalize(() => {
+          this.isLoading = false;
+        }),
+      )
+      .subscribe();
+
+    this.subscriptions.add(loginSubscription);
   }
 
   getEmailErrorMessage() {
@@ -79,5 +100,9 @@ export class LoginComponent {
       return 'Password is required';
     }
     return password?.hasError('minlength') ? 'Password must be at least 6 characters' : '';
+  }
+
+  ngOnDestroy(): void {
+    this.subscriptions.unsubscribe();
   }
 }
