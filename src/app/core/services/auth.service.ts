@@ -6,8 +6,8 @@ import { BehaviorSubject, catchError, Observable, tap, throwError } from 'rxjs';
 export interface RegisterRequest {
   email: string;
   password: string;
-  confirmPassword: string;
-  fullName: string;
+  // confirmPassword: string;
+  // fullName: string;
 }
 
 export interface AuthResponse {

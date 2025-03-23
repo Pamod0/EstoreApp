@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 import {
   AbstractControl,
   FormBuilder,
@@ -17,8 +17,28 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatIconModule } from '@angular/material/icon';
-import { finalize } from 'rxjs';
+import { catchError, finalize, of, Subscription, tap } from 'rxjs';
 import { AuthService, RegisterRequest } from '../../../core/services/auth.service';
+import { AuthErrorResponse } from '../../../core/models/auth.model';
+
+const VALIDATION = {
+  PASSWORD_MIN_LENGTH: 6,
+  SNACKBAR_DURATION: 5000,
+  PASSWORD_PATTERN: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}$/,
+  MESSAGES: {
+    REGISTER_SUCCESS: 'Registration successful! You can now log in.',
+    REGISTER_FAILED: 'Registration failed. Please check the form and try again.',
+    NAME_REQUIRED: 'Full name is required',
+    EMAIL_REQUIRED: 'Email is required',
+    EMAIL_INVALID: 'Not a valid email',
+    PASSWORD_REQUIRED: 'Password is required',
+    PASSWORD_TOO_SHORT: 'Password must be at least 6 characters',
+    PASSWORD_PATTERN:
+      'Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number and 1 special character',
+    CONFIRM_PASSWORD_REQUIRED: 'Please confirm your password',
+    PASSWORDS_MISMATCH: 'Passwords do not match',
+  },
+};
 
 @Component({
   selector: 'app-register',
@@ -35,41 +55,40 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
   templateUrl: './register.component.html',
   styleUrl: './register.component.scss',
 })
-export class RegisterComponent {
-  registerForm: FormGroup;
+export class RegisterComponent implements OnInit, OnDestroy {
+  private subscriptions = new Subscription();
+  registerForm!: FormGroup;
   hidePassword = true;
   hideConfirmPassword = true;
   isLoading = false;
   serverErrors: string[] = [];
 
-  constructor(
-    private fb: FormBuilder,
-    private snackBar: MatSnackBar,
-    private router: Router,
-    private authService: AuthService,
-  ) {
+  private fb = inject(FormBuilder);
+  private snackBar = inject(MatSnackBar);
+  private router = inject(Router);
+  private authService = inject(AuthService);
+
+  ngOnInit(): void {
+    this.createForm();
+  }
+
+  createForm() {
     this.registerForm = this.fb.group(
       {
-        fullName: ['', [Validators.required]],
+        // fullName: ['', [Validators.required]],
         email: ['', [Validators.required, Validators.email]],
         password: [
           '',
           [
             Validators.required,
-            Validators.minLength(6),
-            Validators.pattern(
-              /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}$/,
-            ),
+            Validators.minLength(VALIDATION.PASSWORD_MIN_LENGTH),
+            Validators.pattern(VALIDATION.PASSWORD_PATTERN),
           ],
         ],
         confirmPassword: ['', [Validators.required]],
       },
       { validators: this.passwordMatchValidator },
     );
-  }
-
-  ngOnInit(): void {
-    // Component initialization logic
   }
 
   passwordMatchValidator(control: AbstractControl): ValidationErrors | null {
@@ -87,50 +106,63 @@ export class RegisterComponent {
   onSubmit() {
     this.serverErrors = [];
 
-    if (this.registerForm.valid) {
-      this.isLoading = true;
-
-      const registerData: RegisterRequest = {
-        email: this.registerForm.value.email,
-        password: this.registerForm.value.password,
-        confirmPassword: this.registerForm.value.confirmPassword,
-        fullName: this.registerForm.value.fullName,
-      };
-
-      this.authService
-        .register(registerData)
-        .pipe(finalize(() => (this.isLoading = false)))
-        .subscribe({
-          next: (response) => {
-            this.snackBar.open('Registration successful! You can now log in.', 'Close', {
-              duration: 5000,
-              panelClass: ['success-snackbar'],
-            });
-            this.router.navigate(['/login']);
-          },
-          error: (error) => {
-            if (error.message) {
-              this.serverErrors = Array.isArray(error.message) ? error.message : [error.message];
-              this.snackBar.open(
-                'Registration failed. Please check the form and try again.',
-                'Close',
-                {
-                  duration: 5000,
-                  panelClass: ['error-snackbar'],
-                },
-              );
-            }
-          },
-        });
-    } else {
+    if (this.registerForm.invalid) {
       this.registerForm.markAllAsTouched();
+      return;
     }
+
+    this.isLoading = true;
+
+    const registerData: RegisterRequest = {
+      email: this.registerForm.value.email,
+      password: this.registerForm.value.password,
+      // confirmPassword: this.registerForm.value.confirmPassword,
+      // fullName: this.registerForm.value.fullName,
+    };
+
+    const registerSubscription = this.authService
+      .register(registerData)
+      .pipe(
+        tap((response) => {
+          this.snackBar.open(VALIDATION.MESSAGES.REGISTER_SUCCESS, 'Close', {
+            duration: VALIDATION.SNACKBAR_DURATION,
+            panelClass: ['success-snackbar'],
+          });
+          this.resetForm();
+          this.router.navigate(['/login']);
+        }),
+        catchError((error: AuthErrorResponse) => {
+          if (error.message) {
+            this.serverErrors = Array.isArray(error.message) ? error.message : [error.message];
+          }
+          this.snackBar.open(VALIDATION.MESSAGES.REGISTER_FAILED, 'Close', {
+            duration: VALIDATION.SNACKBAR_DURATION,
+            panelClass: ['error-snackbar'],
+          });
+          return of(null);
+        }),
+        finalize(() => {
+          this.isLoading = false;
+        }),
+      )
+      .subscribe();
+
+    this.subscriptions.add(registerSubscription);
+  }
+
+  resetForm() {
+    this.registerForm.reset();
+    // Avoid validation errors showing up immediately after reset
+    Object.keys(this.registerForm.controls).forEach((key) => {
+      this.registerForm.get(key)?.setErrors(null);
+    });
+    this.serverErrors = [];
   }
 
   getNameErrorMessage() {
     const fullName = this.registerForm.get('fullName');
     if (fullName?.hasError('required')) {
-      return 'Full name is required';
+      return VALIDATION.MESSAGES.NAME_REQUIRED;
     }
     return '';
   }
@@ -138,21 +170,21 @@ export class RegisterComponent {
   getEmailErrorMessage() {
     const email = this.registerForm.get('email');
     if (email?.hasError('required')) {
-      return 'Email is required';
+      return VALIDATION.MESSAGES.EMAIL_REQUIRED;
     }
-    return email?.hasError('email') ? 'Not a valid email' : '';
+    return email?.hasError('email') ? VALIDATION.MESSAGES.EMAIL_INVALID : '';
   }
 
   getPasswordErrorMessage() {
     const password = this.registerForm.get('password');
     if (password?.hasError('required')) {
-      return 'Password is required';
+      return VALIDATION.MESSAGES.PASSWORD_REQUIRED;
     }
     if (password?.hasError('minlength')) {
-      return 'Password must be at least 6 characters';
+      return VALIDATION.MESSAGES.PASSWORD_TOO_SHORT;
     }
     if (password?.hasError('pattern')) {
-      return 'Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number and 1 special character';
+      return VALIDATION.MESSAGES.PASSWORD_PATTERN;
     }
     return '';
   }
@@ -160,8 +192,14 @@ export class RegisterComponent {
   getConfirmPasswordErrorMessage() {
     const confirmPassword = this.registerForm.get('confirmPassword');
     if (confirmPassword?.hasError('required')) {
-      return 'Please confirm your password';
+      return VALIDATION.MESSAGES.CONFIRM_PASSWORD_REQUIRED;
     }
-    return confirmPassword?.hasError('passwordMismatch') ? 'Passwords do not match' : '';
+    return confirmPassword?.hasError('passwordMismatch')
+      ? VALIDATION.MESSAGES.PASSWORDS_MISMATCH
+      : '';
+  }
+
+  ngOnDestroy(): void {
+    this.subscriptions.unsubscribe();
   }
 }
